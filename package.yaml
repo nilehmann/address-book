@@ -32,6 +32,7 @@ dependencies:
 - persistent-sqlite
 - text
 - transformers
+- unordered-containers
 - wai
 - warp
 
