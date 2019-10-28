@@ -77,5 +77,5 @@ forall <policy :: Entity record -> Entity User -> Bool,
 (<-.) :: PersistField typ => EntityFieldWrapper record typ -> [typ] -> Filter record
 (EntityFieldWrapper field) <-. value = Filter (field Persist.<-. value)
 
--- (!=.) :: PersistField typ => EntityFieldWrapper record typ -> typ -> Filter record
--- (EntityFieldWrapper field) !=. value = Filter (field Persist.!=. value)
+(!=.) :: PersistField typ => EntityFieldWrapper record typ -> typ -> Filter record
+(EntityFieldWrapper field) !=. value = Filter (field Persist.!=. value)

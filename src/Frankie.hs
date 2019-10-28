@@ -130,6 +130,7 @@ instance forall m w a config. (MonadTIO w, Typeable m, Typeable a, RequestHandle
   handlerToController = handlerToControllerAuthenticatedT
   reqHandlerArgTy _ = reqHandlerArgTy (undefined :: m a) -- TODO: Fix this bad thing
 
+
 {-@ ignore handlerToControllerAuthenticatedT @-}
 handlerToControllerAuthenticatedT :: (MonadTIO w, Typeable m, Typeable a, RequestHandler (m a) config w, MonadTIO m, WebMonad w, HasSqlBackend config) => [PathSegment] -> AuthenticatedT m a -> Controller config w ()
 handlerToControllerAuthenticatedT args handler = do

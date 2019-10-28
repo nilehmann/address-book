@@ -16,10 +16,10 @@ import Model
 import Infrastructure
 import Filters
 
--- get :: (PersistQueryRead backend, PersistRecordBackend record backend, MonadReader backend m, MonadTIO m) => Key record -> TaggedT m (Maybe record)
--- get key = do
---   backend <- ask
---   liftTIO . TIO $ runReaderT (Persist.get key) backend
+get :: (PersistQueryRead backend, PersistRecordBackend record backend, MonadReader backend m, MonadTIO m) => Key record -> TaggedT m (Maybe record)
+get key = do
+  backend <- ask
+  liftTIO . TIO $ runReaderT (Persist.get key) backend
 
 
 {-@ ignore selectList @-}

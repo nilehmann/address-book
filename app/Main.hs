@@ -171,6 +171,7 @@ instance ToMustache People where
   toMustache (People people) =
     Mustache.object ["people" ~> toMustache (map toMustache people)]
 
+
 people :: TaggedT (AuthenticatedT (Controller Config TIO)) ()
 people = mapTaggedT (reading getBackend) $ do
   loggedInUser <- getLoggedInUser
@@ -191,23 +192,16 @@ people = mapTaggedT (reading getBackend) $ do
   friendshipStatus userId friendshipMap = case lookup userId friendshipMap of
     Nothing      -> NotFriend
     Just request -> if friendRequestAccepted request then Friend else Pending
-getArgs' :: [TypeRep] -> [TypeRep]
-getArgs' [a, b] = a : (getArgs' $ typeRepArgs b)
-getArgs' _      = []
-
 
 main :: IO ()
 main = runSqlite ":memory:" $ do
   cfg <- setup
   liftIO . runFrankieServer "dev" $ do
-    c <- reqHandlerArgTy a
-    () <- return . unsafePerformIO . print $ c
     mode "dev" $ do
       host "localhost"
       port 3000
       appState cfg
     dispatch $ do
-      -- get "/profile" profile
       -- get "/profile/:uid" profile
-      get "/people"       people
+      get "/people" people
       fallback $ respond notFound
