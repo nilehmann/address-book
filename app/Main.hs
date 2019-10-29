@@ -62,10 +62,13 @@ setup = do
   runMigration migrateAll
 
   rossId <- Persist.insert
-    $ User "Ross Geller" "ross@friends.com" "New York" True
+    $ User "Ross Geller" "ross@friends.com" "New York 1" True
   monicaId <- Persist.insert
-    $ User "Monica Geller" "monica@friends.com" "New York" False
-  _       <- Persist.insert $ FriendRequest monicaId rossId True
+    $ User "Monica Geller" "monica@friends.com" "New York 2" False
+  chandlerId <- Persist.insert
+    $ User "Chandler Bing" "chandler@friends.com" "New York 3" False
+  Persist.insert $ FriendRequest monicaId rossId True
+  Persist.insert $ FriendRequest rossId monicaId True
   backend <- ask
 
 
@@ -87,7 +90,7 @@ getOrLoadTemplate searchDirs file = do
   oldCache  <- liftTIO $ TIO (readMVar cacheMVar)
   case HashMap.lookup file oldCache of
     Just template -> pure template
-    Nothing       -> do
+    Nothing ->
       liftTIO
         $   TIO
         $   Mustache.compileTemplateWithCache searchDirs oldCache file
@@ -125,14 +128,17 @@ guardNotFound :: MonadController Config w m => Maybe a -> m a
 guardNotFound Nothing  = respond notFound
 guardNotFound (Just x) = return x
 
-data Profile = Profile {profileName :: Text, profileAddress :: Text}
+data Profile = Profile {profileName :: Text, profileAddress :: Maybe Text, profileEmail :: Maybe Text}
 
 instance TemplateData Profile where
   templateFile = "profile.html.mustache"
 
 instance ToMustache Profile where
-  toMustache (Profile name address) =
-    Mustache.object ["name" ~> toMustache name, "address" ~> toMustache address]
+  toMustache (Profile name address email) = Mustache.object
+    [ "name" ~> toMustache name
+    , "address" ~> toMustache address
+    , "email" ~> toMustache email
+    ]
 
 instance HasSqlBackend Config where
   getSqlBackend = configBackend
@@ -141,15 +147,37 @@ instance HasSqlBackend Config where
 getBackend :: MonadController Config w m => m SqlBackend
 getBackend = configBackend <$> getAppState
 
-profile :: Int64 -> TaggedT (AuthenticatedT (Controller Config TIO)) ()
-profile uid = mapTaggedT (reading getBackend) $ do
+-- profile :: Int64 -> TaggedT (AuthenticatedT (Controller Config TIO)) ()
+-- profile uid = mapTaggedT (reading getBackend) $ do
+profile :: TaggedT (AuthenticatedT (Controller Config TIO)) ()
+profile = mapTaggedT (reading getBackend) $ do
+  let uid    = 1
   let userId = Sql.toSqlKey uid
-  user <- Actions.get userId
-  user <- guardNotFound user
-  page <- renderTemplate Profile { profileName    = userName user
-                                 , profileAddress = userAddress user
-                                 }
-  respondTagged . okHtml . ByteString.fromStrict . encodeUtf8 $ page
+  loggedInUser <- getLoggedInUser
+  let loggedInUserId = Persist.entityKey loggedInUser
+  if userId == loggedInUserId
+    then do
+      let user = entityVal loggedInUser
+      let profile = Profile (userName user) (Just $ userAddress user) (Just $ userEmail user)
+      page <- renderTemplate profile
+      respondTagged . okHtml . ByteString.fromStrict . encodeUtf8 $ page
+    else do
+      user           <- Actions.get userId
+      user           <- guardNotFound user
+
+      friendship     <- fmap entityVal <$> Actions.selectFirst
+        (   friendRequestFromField
+        ==. loggedInUserId
+        ?:  friendRequestToField
+        ==. userId
+        ?:  nilFL
+        )
+      let address = case friendship of
+            Just (FriendRequest _ _ True) -> Just $ userAddress user
+            _                             -> Nothing
+      page <- renderTemplate $ Profile (userName user) address Nothing
+      respondTagged . okHtml . ByteString.fromStrict . encodeUtf8 $ page
+
 
 data FriendshipStatus = NotFriend | Pending | Friend deriving (Show)
 
@@ -174,8 +202,7 @@ instance ToMustache People where
 
 people :: TaggedT (AuthenticatedT (Controller Config TIO)) ()
 people = mapTaggedT (reading getBackend) $ do
-  loggedInUser <- getLoggedInUser
-  let loggedInUserId = entityKey loggedInUser
+  loggedInUserId <- entityKey <$> getLoggedInUser
   users          <- Actions.selectList (userIdField !=. loggedInUserId ?: nilFL)
   friendRequests <- Actions.selectList
     (friendRequestFromField ==. loggedInUserId ?: nilFL)
@@ -203,5 +230,6 @@ main = runSqlite ":memory:" $ do
       appState cfg
     dispatch $ do
       -- get "/profile/:uid" profile
-      get "/people" people
+      get "/profile" profile
+      get "/people"  people
       fallback $ respond notFound
