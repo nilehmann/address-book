@@ -5,21 +5,19 @@
 
 packages:
 - completed:
-    size: 513335
-    subdir: lio-http-server
-    url: https://github.com/rosekunkel/lio/archive/c6be0171770db90811401c227cb5fb1a1f701cfa.tar.gz
+    size: 16780
+    url: https://github.com/rosekunkel/frankie/archive/377b64cfae4525546018673f0a4c95b6b44b0326.tar.gz
     cabal-file:
       size: 2123
       sha256: e1ed4fbf6f02cd86145e05ff88f496b018136588dec33e761fb4acb9b4a57c4e
     name: lio-http-server
     version: 0.0.0.1
-    sha256: 30c6a4db407c0ad1c827ce2a5f027817c7d43285d87c04421e7b6e8a2e60fa3a
+    sha256: 5bc9d33f5702766d15aa692c0a0987710b34e78249c2a1fc78ca70d2970d5e54
     pantry-tree:
       size: 750
-      sha256: 52c81cbe2fe3dca94649e86309955f44c9c662877e2c3d55108f06927e43e4fc
+      sha256: 0b9068bc571f31222c428beae5aa33112d34b6559bd4b4076688723eae0e02ca
   original:
-    subdir: lio-http-server
-    url: https://github.com/rosekunkel/lio/archive/c6be0171770db90811401c227cb5fb1a1f701cfa.tar.gz
+    url: https://github.com/rosekunkel/frankie/archive/377b64cfae4525546018673f0a4c95b6b44b0326.tar.gz
 snapshots:
 - completed:
     size: 524786

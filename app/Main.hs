@@ -49,7 +49,6 @@ import qualified Actions
 import           Filters
 
 import           Core
-import           Data.Maybe                     ( fromJust )
 
 
 data Config = Config
