@@ -6,6 +6,8 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE ScopedTypeVariables, TypeApplications, AllowAmbiguousTypes #-}
 
+{-@ LIQUID "--no-pattern-inline" @-}
+
 module Main where
 
 import           Data.Int                       ( Int64 )
@@ -25,9 +27,6 @@ import           Data.Typeable
 import           Data.Text                      ( Text )
 import           Data.Text.Encoding             ( encodeUtf8 )
 import qualified Data.Text                     as Text
-import           Database.Persist               ( entityKey
-                                                , entityVal
-                                                )
 import           Control.Monad.Trans.Class      ( MonadTrans(..) )
 import           LIO.HTTP.Server.Frankie
 import           Text.Mustache                  ( (~>)
@@ -48,6 +47,9 @@ import           Control.Concurrent.MVar
 import           Frankie
 import qualified Actions
 import           Filters
+
+import           Core
+import           Data.Maybe                     ( fromJust )
 
 
 data Config = Config
@@ -124,10 +126,6 @@ renderTemplate templateData = do
   file       = templateFile @d
   searchDirs = ["templates"]
 
-guardNotFound :: MonadController Config w m => Maybe a -> m a
-guardNotFound Nothing  = respond notFound
-guardNotFound (Just x) = return x
-
 data Profile = Profile {profileName :: Text, profileAddress :: Maybe Text, profileEmail :: Maybe Text}
 
 instance TemplateData Profile where
@@ -147,35 +145,49 @@ instance HasSqlBackend Config where
 getBackend :: MonadController Config w m => m SqlBackend
 getBackend = configBackend <$> getAppState
 
--- profile :: Int64 -> TaggedT (AuthenticatedT (Controller Config TIO)) ()
--- profile uid = mapTaggedT (reading getBackend) $ do
-profile :: TaggedT (AuthenticatedT (Controller Config TIO)) ()
-profile = mapTaggedT (reading getBackend) $ do
-  let uid    = 1
+
+{-@ ignore returnTagged @-}
+{-@ assume returnTagged:: a -> TaggedT<{\_ -> True}, {\_ -> False}> _ _ @-}
+returnTagged :: Monad m => a -> TaggedT m a
+returnTagged = return
+
+{-@ profile :: {v: Int64 | True} -> TaggedT<{\_ -> False}, {\_ -> True}> _ () @-}
+profile :: Int64 -> TaggedT (AuthenticatedT (Controller Config TIO)) ()
+profile uid = mapTaggedT (reading getBackend) $ do
   let userId = Sql.toSqlKey uid
-  loggedInUser <- getLoggedInUser
-  let loggedInUserId = Persist.entityKey loggedInUser
+  loggedInUser   <- getLoggedInUserTagged
+  loggedInUserId <- Actions.project userIdField loggedInUser
   if userId == loggedInUserId
     then do
-      let user = entityVal loggedInUser
-      let profile = Profile (userName user) (Just $ userAddress user) (Just $ userEmail user)
+      userName    <- Actions.project userNameField loggedInUser
+      userAddress <- Actions.project userAddressField loggedInUser
+      userEmail   <- Actions.project userEmailField loggedInUser
+      let profile = Profile userName (Just userAddress) (Just userEmail)
       page <- renderTemplate profile
       respondTagged . okHtml . ByteString.fromStrict . encodeUtf8 $ page
     else do
-      user           <- Actions.get userId
-      user           <- guardNotFound user
-
-      friendship     <- fmap entityVal <$> Actions.selectFirst
+      maybeUser <- Actions.selectFirst (userIdField ==. userId ?: nilFL)
+      user      <- case maybeUser of
+        Nothing   -> respondTagged notFound
+        Just user -> returnTagged user
+      userName      <- Actions.project userNameField user
+      friendRequest <- Actions.selectFirst
         (   friendRequestFromField
         ==. loggedInUserId
         ?:  friendRequestToField
         ==. userId
         ?:  nilFL
         )
-      let address = case friendship of
-            Just (FriendRequest _ _ True) -> Just $ userAddress user
-            _                             -> Nothing
-      page <- renderTemplate $ Profile (userName user) address Nothing
+      userAddress <- case friendRequest of
+        Just friendRequest -> do
+          accepted <- Actions.project friendRequestAcceptedField friendRequest
+          if accepted
+            then do
+              userAddress <- Actions.project userAddressField user
+              returnTagged $ Just userAddress
+            else returnTagged Nothing
+        Nothing -> returnTagged Nothing
+      page <- renderTemplate $ Profile userName userAddress Nothing
       respondTagged . okHtml . ByteString.fromStrict . encodeUtf8 $ page
 
 
@@ -200,19 +212,24 @@ instance ToMustache People where
     Mustache.object ["people" ~> toMustache (map toMustache people)]
 
 
+{-@ people :: TaggedT<{\_ -> False}, {\_ -> True}> _ () @-}
 people :: TaggedT (AuthenticatedT (Controller Config TIO)) ()
 people = mapTaggedT (reading getBackend) $ do
-  loggedInUserId <- entityKey <$> getLoggedInUser
+  loggedInUser   <- getLoggedInUserTagged
+  loggedInUserId <- Actions.project userIdField loggedInUser
   users          <- Actions.selectList (userIdField !=. loggedInUserId ?: nilFL)
   friendRequests <- Actions.selectList
     (friendRequestFromField ==. loggedInUserId ?: nilFL)
   let friendshipMap = friendRequests & map entityVal & map
         (\request -> (friendRequestTo request, request))
+  userNames <- Actions.projectList userNameField users
+  userIds   <- Actions.projectList userIdField users
+  let userNamesAndIds = zip userIds userNames
   let people = map
-        (\user -> Person (userName $ entityVal user)
-                         (friendshipStatus (entityKey user) friendshipMap)
+        (\(userId, userName) ->
+          Person userName (friendshipStatus userId friendshipMap)
         )
-        users
+        userNamesAndIds
   page <- renderTemplate (People people)
   respondTagged . okHtml . ByteString.fromStrict . encodeUtf8 $ page
  where
@@ -220,6 +237,7 @@ people = mapTaggedT (reading getBackend) $ do
     Nothing      -> NotFriend
     Just request -> if friendRequestAccepted request then Friend else Pending
 
+{-@ ignore main @-}
 main :: IO ()
 main = runSqlite ":memory:" $ do
   cfg <- setup

@@ -1,3 +1,4 @@
 .stack-work/
 address-book.cabal
 *~
+.liquid
