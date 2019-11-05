@@ -1,9 +1,8 @@
-{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE ScopedTypeVariables, TypeApplications, AllowAmbiguousTypes #-}
+{-# LANGUAGE ScopedTypeVariables, AllowAmbiguousTypes #-}
 
 {-@ LIQUID "--no-pattern-inline" @-}
 
@@ -26,38 +25,41 @@ import           Data.Typeable
 import           Data.Text                      ( Text )
 import           Data.Text.Encoding             ( encodeUtf8 )
 import qualified Data.Text                     as Text
-import           Control.Monad.Trans.Class      ( MonadTrans(..) )
 import           LIO.HTTP.Server.Frankie
 import           Text.Mustache                  ( (~>)
                                                 , ToMustache(..)
                                                 )
 import qualified Text.Mustache.Types           as Mustache
-import qualified Text.Mustache                 as Mustache
 import qualified Database.Persist              as Persist
-import           Control.Exception              ( try
-                                                , evaluate
-                                                )
 import qualified Data.ByteString.Lazy          as ByteString
-import           Data.Function                  ( (&) )
-import qualified Data.HashMap.Strict           as HashMap
-import           Infrastructure
-import           Control.Concurrent.MVar
+import qualified Control.Concurrent.MVar       as MVar
 
+import           Infrastructure
+import           Templates
 import           Frankie
 import qualified Actions
 import           Filters
-
 import           Core
 
 
 data Config = Config
   { configBackend :: SqlBackend
-  , configTemplateCache :: !(MVar Mustache.TemplateCache)
+  , configTemplateCache :: !(MVar.MVar Mustache.TemplateCache)
   }
+
+instance HasTemplateCache Config where
+  templateCache = configTemplateCache
+
+instance HasSqlBackend Config where
+  getSqlBackend = configBackend
+
+getBackend :: MonadController Config w m => m SqlBackend
+getBackend = configBackend <$> getAppState
+
 
 setup :: MonadIO m => ReaderT SqlBackend m Config
 setup = do
-  templateCache <- liftIO $ newMVar mempty
+  templateCache <- liftIO $ MVar.newMVar mempty
 
   runMigration migrateAll
 
@@ -108,53 +110,12 @@ setup = do
     $ Config { configBackend = backend, configTemplateCache = templateCache }
 
 
-class ToMustache d => TemplateData d where
-  templateFile :: FilePath
+{-@ guardVerified :: user: (Entity User) -> TaggedT<{\_ -> True}, {\u -> currentUser == u}> _ {v: () | userVerified (entityVal user) }@-}
+guardVerified :: MonadController s w m => Entity User -> TaggedT m ()
+guardVerified user = do
+  verified <- Actions.project userVerifiedField user
+  if verified then returnTagged () else respondTagged forbidden
 
-{-@ ignore getOrLoadTemplate @-}
-getOrLoadTemplate
-  :: (MonadController Config w m, MonadTIO m)
-  => [FilePath]
-  -> FilePath
-  -> m Mustache.Template
-getOrLoadTemplate searchDirs file = do
-  cacheMVar <- configTemplateCache <$> getAppState
-  oldCache  <- liftTIO $ TIO (readMVar cacheMVar)
-  case HashMap.lookup file oldCache of
-    Just template -> pure template
-    Nothing ->
-      liftTIO
-        $   TIO
-        $   Mustache.compileTemplateWithCache searchDirs oldCache file
-        >>= \case
-              Right template ->
-                let updatedCache = HashMap.insert
-                      (Mustache.name template)
-                      template
-                      (Mustache.partials template)
-                in  do
-                      modifyMVar_
-                        cacheMVar
-                        (\currentCache ->
-                          evaluate $ currentCache <> updatedCache
-                        )
-                      pure template
-              Left err ->
-                error $ "Error parsing template " ++ file ++ ": " ++ show err
-
-{-@ assume renderTemplate :: _ -> TaggedT<{\_ -> True}, {\_ -> False}> _ _ @-}
-{-@ ignore renderTemplate @-}
-renderTemplate
-  :: forall d w m
-   . (MonadController Config w m, MonadTIO m, TemplateData d)
-  => d
-  -> TaggedT m Text
-renderTemplate templateData = do
-  template <- getOrLoadTemplate searchDirs file
-  pure $ Mustache.substitute template templateData
- where
-  file       = templateFile @d
-  searchDirs = ["templates"]
 
 data Profile = Profile {profileName :: Text, profileAddress :: Maybe Text, profileEmail :: Maybe Text}
 
@@ -168,12 +129,6 @@ instance ToMustache Profile where
     , "email" ~> toMustache email
     ]
 
-instance HasSqlBackend Config where
-  getSqlBackend = configBackend
-
-
-getBackend :: MonadController Config w m => m SqlBackend
-getBackend = configBackend <$> getAppState
 
 
 {-@ profile :: {v: Int64 | True} -> TaggedT<{\_ -> False}, {\_ -> True}> _ () @-}
@@ -240,14 +195,6 @@ instance ToMustache People where
   toMustache (People people) =
     Mustache.object ["people" ~> toMustache (map toMustache people)]
 
-
-{-@ guardVerified :: user: (Entity User) -> TaggedT<{\_ -> True}, {\u -> currentUser == u}> _ {v: () | userVerified (entityVal user) }@-}
-guardVerified :: MonadController s w m => Entity User -> TaggedT m ()
-guardVerified user = do
-  verified <- Actions.project userVerifiedField user
-  if verified then returnTagged () else respondTagged forbidden
-
-
 {-@ people :: TaggedT<{\_ -> False}, {\_ -> True}> _ () @-}
 people :: TaggedT (AuthenticatedT (Controller Config TIO)) ()
 people = mapTaggedT (reading getBackend) $ do
@@ -255,10 +202,12 @@ people = mapTaggedT (reading getBackend) $ do
   _              <- guardVerified loggedInUser
   loggedInUserId <- Actions.project userIdField loggedInUser
   users          <- Actions.selectList (userIdField !=. loggedInUserId ?: nilFL)
-  friendRequests <-
-    Actions.selectList (friendRequestFromField ==. loggedInUserId ?: nilFL)
-  let friendshipMap = friendRequests & map entityVal & map
-        (\request -> (friendRequestTo request, request))
+  friendRequests <- Actions.selectList
+    (friendRequestFromField ==. loggedInUserId ?: nilFL)
+  requestsTo       <- Actions.projectList friendRequestToField friendRequests
+  requestsAccepted <- Actions.projectList friendRequestAcceptedField
+                                          friendRequests
+  let friendshipMap = zip requestsTo requestsAccepted
   userNames <- Actions.projectList userNameField users
   userIds   <- Actions.projectList userIdField users
   let userNamesAndIds = zip userIds userNames
@@ -272,8 +221,9 @@ people = mapTaggedT (reading getBackend) $ do
   respondTagged . okHtml . ByteString.fromStrict . encodeUtf8 $ page
  where
   friendshipStatus userId friendshipMap = case lookup userId friendshipMap of
-    Nothing      -> NotFriend
-    Just request -> if friendRequestAccepted request then Friend else Pending
+    Nothing    -> NotFriend
+    Just True  -> Friend
+    Just False -> Pending
 
 {-@ myProfile :: TaggedT<{\_ -> False}, {\_ -> True}> _ _@-}
 myProfile :: TaggedT (AuthenticatedT (Controller Config TIO)) ()

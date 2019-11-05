@@ -70,7 +70,6 @@ userTheIntField = EntityFieldWrapper UserTheInt
 userIdField :: EntityFieldWrapper User UserId
 userIdField = EntityFieldWrapper UserId
 
--- TODO change policy so only vierified users can see this
 {-@ assume userNameField :: EntityFieldWrapper <
     {\row viewer -> userVerified (entityVal viewer) || (entityKey viewer) == (entityKey row)}
   , {\row field -> field == userName (entityVal row)}

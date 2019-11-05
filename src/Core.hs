@@ -1,10 +1,6 @@
 -- | Functionality that needs to be loaded before checking the Models file.
 
-module Core
-  ( Entity
-  , entityKey
-  , entityVal
-  ) where
+module Core ( Entity ) where
 
 import Database.Persist (Entity, Key)
 import qualified Database.Persist as Persist
@@ -18,11 +14,5 @@ import qualified Database.Persist as Persist
 -- measures with e.g. {-@ measure entityKey @-}
 
 {-@ measure entityKey :: Entity record -> Key record @-}
-{-@ assume entityKey :: entity:_ -> {v:_ | v == entityKey entity} @-}
-entityKey :: Entity record -> Key record
-entityKey = Persist.entityKey
 
 {-@ measure entityVal :: Entity record -> record @-}
-{-@ assume entityVal :: entity:_ -> {v:_ | v == entityVal entity} @-}
-entityVal :: Entity record -> record
-entityVal = Persist.entityVal
