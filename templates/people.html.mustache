@@ -6,11 +6,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
   </head>
   <body>
+      <ul>
       {{#people}}
-          <h1>Name</h1>
-          {{name}}
-          <h2>Friend Status</h2>
-          {{status}}
+          <li><a href="/profile/{{id}}">{{name}}</a> {{status}}</li>
       {{/people}}
+      </ul>
   </body>
 </html>

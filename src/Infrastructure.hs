@@ -96,6 +96,11 @@ instance Monad m => Monad (TaggedT m) where
 @-}
 instance Monad m => Monad (TaggedT m) where
   x >>= f = TaggedT $ unTag x >>= (unTag . f)
+{-@ ignore returnTagged @-}
+{-@ assume returnTagged:: a -> TaggedT<{\_ -> True}, {\_ -> False}> _ _ @-}
+returnTagged :: Monad m => a -> TaggedT m a
+returnTagged = return
+
 
 -- ** MonadTIO
 

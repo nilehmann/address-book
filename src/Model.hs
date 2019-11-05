@@ -32,6 +32,7 @@ User
   email Text
   address Text
   verified Bool
+  theInt Int
   deriving Show
 
 FriendRequest
@@ -48,31 +49,57 @@ data User = User
   , userEmail :: {v: _ | tlen v > 0}
   , userAddress :: {v: _ | tlen v > 0}
   , userVerified :: _
+  , userTheInt :: _
   }
 @-}
 
-{-@ assume userIdField :: EntityFieldWrapper <{\row viewer -> True}, {\row field -> field == entityKey row}, {\field row -> field == entityKey row}> User UserId @-}
+
+{-@ assume userTheIntField :: EntityFieldWrapper <
+    {\row viewer -> True}
+  , {\row field -> field == userTheInt (entityVal row)}
+  , {\field row -> field == userTheInt (entityVal row)}
+  > User Int @-}
+userTheIntField :: EntityFieldWrapper User Int
+userTheIntField = EntityFieldWrapper UserTheInt
+
+{-@ assume userIdField :: EntityFieldWrapper <
+    {\row viewer -> True}
+  , {\row field -> field == entityKey row}
+  , {\field row -> field == entityKey row}
+  > User UserId @-}
 userIdField :: EntityFieldWrapper User UserId
 userIdField = EntityFieldWrapper UserId
 
 -- TODO change policy so only vierified users can see this
-{-@ assume userNameField :: EntityFieldWrapper <{\row viewer -> True}, {\row field -> field == userName (entityVal row)}, {\field row -> field == userName (entityVal row)}> User Text @-}
+{-@ assume userNameField :: EntityFieldWrapper <
+    {\row viewer -> userVerified (entityVal viewer) || (entityKey viewer) == (entityKey row)}
+  , {\row field -> field == userName (entityVal row)}
+  , {\field row -> field == userName (entityVal row)}
+  > User Text @-}
 userNameField :: EntityFieldWrapper User Text
 userNameField = EntityFieldWrapper UserName
 
-{-@ assume userEmailField :: EntityFieldWrapper <{\row viewer -> True}, {\row field -> field == userEmail (entityVal row)}, {\field row -> field == userEmail (entityVal row)}> User Text @-}
+{-@ assume userEmailField :: EntityFieldWrapper <
+    {\row viewer -> True}
+  , {\row field -> field == userEmail (entityVal row)}
+  , {\field row -> field == userEmail (entityVal row)}
+  > _ _ @-}
 userEmailField :: EntityFieldWrapper User Text
 userEmailField = EntityFieldWrapper UserEmail
 
 {-@ assume userAddressField :: EntityFieldWrapper <
-      {\user viewer -> friends (entityKey viewer) (entityKey user) || (entityKey viewer) == (entityKey user)}
-    , {\user field -> field == userAddress (entityVal user)}
-    , {\field user -> field == userAddress (entityVal user)}
-    > User Text @-}
+    {\row viewer -> friends (entityKey viewer) (entityKey row) || (entityKey viewer) == (entityKey row)}
+  , {\row field -> field == userAddress (entityVal row)}
+  , {\field row -> field == userAddress (entityVal row)}
+  > User Text @-}
 userAddressField :: EntityFieldWrapper User Text
 userAddressField = EntityFieldWrapper UserAddress
 
-{-@ assume userVerifiedField :: EntityFieldWrapper <{\row viewer -> True}, {\row field -> field = userVerified (entityVal row)}, {\field row -> field = userVerified (entityVal row)}> User Bool @-}
+{-@ assume userVerifiedField :: EntityFieldWrapper <
+    {\row viewer -> True}
+  , {\row field -> field = userVerified (entityVal row)}
+  , {\field row -> field = userVerified (entityVal row)}
+  > _ _ @-}
 userVerifiedField :: EntityFieldWrapper User Bool
 userVerifiedField = EntityFieldWrapper UserVerified
 
@@ -86,18 +113,30 @@ data FriendRequest = FriendRequest
   }
 @-}
 
-{-@ assume friendRequestFromField :: EntityFieldWrapper <{\row viewer -> True}, {\row field -> field = friendRequestFrom (entityVal row)}, {\field row -> field = friendRequestFrom (entityVal row)}> FriendRequest UserId @-}
+{-@ assume friendRequestFromField :: EntityFieldWrapper <
+    {\row viewer -> True}
+  , {\row field -> field = friendRequestFrom (entityVal row)}
+  , {\field row -> field = friendRequestFrom (entityVal row)}
+  > FriendRequest UserId @-}
 friendRequestFromField :: EntityFieldWrapper FriendRequest (Key User)
 friendRequestFromField = EntityFieldWrapper FriendRequestFrom
 
-{-@ assume friendRequestToField :: EntityFieldWrapper <{\row viewer -> True}, {\row field -> field = friendRequestTo (entityVal row)}, {\field row -> field = friendRequestTo (entityVal row)}> FriendRequest UserId @-}
+{-@ assume friendRequestToField :: EntityFieldWrapper <
+    {\row viewer -> True}
+  , {\row field -> field = friendRequestTo (entityVal row)}
+  , {\field row -> field = friendRequestTo (entityVal row)}
+  > FriendRequest UserId @-}
 friendRequestToField :: EntityFieldWrapper FriendRequest (Key User)
 friendRequestToField = EntityFieldWrapper FriendRequestTo
 
-{-@ assume friendRequestAcceptedField :: EntityFieldWrapper <{\row viewer -> True}, {\row field -> field = friendRequestAccepted (entityVal row)}, {\field row -> field = friendRequestAccepted (entityVal row)}> FriendRequest Bool @-}
+{-@ assume friendRequestAcceptedField :: EntityFieldWrapper <
+    {\row viewer -> True}
+  , {\row field -> field = friendRequestAccepted (entityVal row)}
+  , {\field row -> field = friendRequestAccepted (entityVal row)}
+  > FriendRequest Bool @-}
 friendRequestAcceptedField :: EntityFieldWrapper FriendRequest Bool
 friendRequestAcceptedField = EntityFieldWrapper FriendRequestAccepted
 
 -- TODO make this symmetric
 {-@ measure friends :: Key User -> Key User -> Bool @-}
-{-@ invariant {v:FriendRequest | friendRequestAccepted v => friends (friendRequestFrom v) (friendRequestTo v)} @-}
+{-@ invariant {v:FriendRequest | friendRequestAccepted v => (friends (friendRequestFrom v) (friendRequestTo v) && friends (friendRequestTo v) (friendRequestFrom v))} @-}

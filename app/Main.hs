@@ -1,5 +1,4 @@
 {-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -62,14 +61,46 @@ setup = do
 
   runMigration migrateAll
 
-  rossId <- Persist.insert
-    $ User "Ross Geller" "ross@friends.com" "New York 1" True
-  monicaId <- Persist.insert
-    $ User "Monica Geller" "monica@friends.com" "New York 2" False
-  chandlerId <- Persist.insert
-    $ User "Chandler Bing" "chandler@friends.com" "New York 3" False
-  Persist.insert $ FriendRequest monicaId rossId True
-  Persist.insert $ FriendRequest rossId monicaId True
+  jerryId <- Persist.insert $ User
+    "Jerry Seinfeld"
+    "jerry@seinfeld.com"
+    "129 West 81st Street, Apt 5A, New York, NY"
+    True
+    10
+  kramerId <- Persist.insert $ User
+    "Cosmo Kramer"
+    "cosmo@kramer.com"
+    "129 West 81st Street, Apt 5B, New York, NY"
+    True
+    10
+  newmanId <- Persist.insert $ User
+    "Newman"
+    "newman@newman.com"
+    "129 West 81st Street, Apt 5E, New York, NY"
+    True
+    10
+  georgeId <- Persist.insert $ User "George Constanza"
+                                    "george@constanza.com"
+                                    "Somewhere in New York"
+                                    True
+                                    10
+  susanId <- Persist.insert
+    $ User "Susan Ross" "susan@ross.com" "Somewhere in New York" False 10
+
+  Persist.insert $ FriendRequest newmanId kramerId True
+
+  Persist.insert $ FriendRequest kramerId jerryId True
+  Persist.insert $ FriendRequest kramerId georgeId True
+  Persist.insert $ FriendRequest kramerId newmanId True
+
+  Persist.insert $ FriendRequest georgeId kramerId True
+  Persist.insert $ FriendRequest georgeId jerryId True
+
+  Persist.insert $ FriendRequest jerryId georgeId True
+  Persist.insert $ FriendRequest jerryId kramerId True
+
+  Persist.insert $ FriendRequest georgeId susanId False
+
   backend <- ask
 
 
@@ -145,11 +176,6 @@ getBackend :: MonadController Config w m => m SqlBackend
 getBackend = configBackend <$> getAppState
 
 
-{-@ ignore returnTagged @-}
-{-@ assume returnTagged:: a -> TaggedT<{\_ -> True}, {\_ -> False}> _ _ @-}
-returnTagged :: Monad m => a -> TaggedT m a
-returnTagged = return
-
 {-@ profile :: {v: Int64 | True} -> TaggedT<{\_ -> False}, {\_ -> True}> _ () @-}
 profile :: Int64 -> TaggedT (AuthenticatedT (Controller Config TIO)) ()
 profile uid = mapTaggedT (reading getBackend) $ do
@@ -157,26 +183,29 @@ profile uid = mapTaggedT (reading getBackend) $ do
   loggedInUser   <- getLoggedInUserTagged
   loggedInUserId <- Actions.project userIdField loggedInUser
   if userId == loggedInUserId
-    then do
-      userName    <- Actions.project userNameField loggedInUser
-      userAddress <- Actions.project userAddressField loggedInUser
-      userEmail   <- Actions.project userEmailField loggedInUser
-      let profile = Profile userName (Just userAddress) (Just userEmail)
-      page <- renderTemplate profile
-      respondTagged . okHtml . ByteString.fromStrict . encodeUtf8 $ page
+    then respondTagged (redirectTo "/my-profile")
     else do
+      _         <- guardVerified loggedInUser
       maybeUser <- Actions.selectFirst (userIdField ==. userId ?: nilFL)
       user      <- case maybeUser of
         Nothing   -> respondTagged notFound
         Just user -> returnTagged user
       userName      <- Actions.project userNameField user
-      friendRequest <- Actions.selectFirst
-        (   friendRequestFromField
-        ==. loggedInUserId
-        ?:  friendRequestToField
-        ==. userId
-        ?:  nilFL
-        )
+      friendRequest <-
+        Actions.selectFirst
+        $   (   friendRequestFromField
+            ==. loggedInUserId
+            ?:  friendRequestToField
+            ==. userId
+            ?:  nilFL
+            )
+        ||| (   friendRequestFromField
+            ==. userId
+            ?:  friendRequestToField
+            ==. loggedInUserId
+            ?:  nilFL
+            )
+
       userAddress <- case friendRequest of
         Just friendRequest -> do
           accepted <- Actions.project friendRequestAcceptedField friendRequest
@@ -193,6 +222,7 @@ profile uid = mapTaggedT (reading getBackend) $ do
 data FriendshipStatus = NotFriend | Pending | Friend deriving (Show)
 
 data Person = Person {
+  personId :: String,
   personName :: Text,
   personStatus :: FriendshipStatus
 }
@@ -203,30 +233,39 @@ instance TemplateData People where
   templateFile = "people.html.mustache"
 
 instance ToMustache Person where
-  toMustache (Person name status) =
-    Mustache.object ["name" ~> name, "status" ~> show status]
+  toMustache (Person id name status) =
+    Mustache.object ["id" ~> id, "name" ~> name, "status" ~> show status]
 
 instance ToMustache People where
   toMustache (People people) =
     Mustache.object ["people" ~> toMustache (map toMustache people)]
 
 
+{-@ guardVerified :: user: (Entity User) -> TaggedT<{\_ -> True}, {\u -> currentUser == u}> _ {v: () | userVerified (entityVal user) }@-}
+guardVerified :: MonadController s w m => Entity User -> TaggedT m ()
+guardVerified user = do
+  verified <- Actions.project userVerifiedField user
+  if verified then returnTagged () else respondTagged forbidden
+
+
 {-@ people :: TaggedT<{\_ -> False}, {\_ -> True}> _ () @-}
 people :: TaggedT (AuthenticatedT (Controller Config TIO)) ()
 people = mapTaggedT (reading getBackend) $ do
   loggedInUser   <- getLoggedInUserTagged
+  _              <- guardVerified loggedInUser
   loggedInUserId <- Actions.project userIdField loggedInUser
   users          <- Actions.selectList (userIdField !=. loggedInUserId ?: nilFL)
-  friendRequests <- Actions.selectList
-    (friendRequestFromField ==. loggedInUserId ?: nilFL)
+  friendRequests <-
+    Actions.selectList (friendRequestFromField ==. loggedInUserId ?: nilFL)
   let friendshipMap = friendRequests & map entityVal & map
         (\request -> (friendRequestTo request, request))
   userNames <- Actions.projectList userNameField users
   userIds   <- Actions.projectList userIdField users
   let userNamesAndIds = zip userIds userNames
   let people = map
-        (\(userId, userName) ->
-          Person userName (friendshipStatus userId friendshipMap)
+        (\(userId, userName) -> Person (show $ Sql.fromSqlKey userId)
+                                       userName
+                                       (friendshipStatus userId friendshipMap)
         )
         userNamesAndIds
   page <- renderTemplate (People people)
@@ -235,6 +274,31 @@ people = mapTaggedT (reading getBackend) $ do
   friendshipStatus userId friendshipMap = case lookup userId friendshipMap of
     Nothing      -> NotFriend
     Just request -> if friendRequestAccepted request then Friend else Pending
+
+{-@ myProfile :: TaggedT<{\_ -> False}, {\_ -> True}> _ _@-}
+myProfile :: TaggedT (AuthenticatedT (Controller Config TIO)) ()
+myProfile = mapTaggedT (reading getBackend) $ do
+  loggedInUser <- getLoggedInUserTagged
+  userName     <- Actions.project userNameField loggedInUser
+  userAddress  <- Actions.project userAddressField loggedInUser
+  userEmail    <- Actions.project userEmailField loggedInUser
+  let profile = Profile userName (Just userAddress) (Just userEmail)
+  page <- renderTemplate profile
+  respondTagged . okHtml . ByteString.fromStrict . encodeUtf8 $ page
+
+
+data Home = Home
+instance TemplateData Home where
+  templateFile = "home.html.mustache"
+
+instance ToMustache Home where
+  toMustache Home = Mustache.object []
+
+{-@ home :: TaggedT<{\_ -> False}, {\_ -> True}> _ _@-}
+home :: TaggedT (AuthenticatedT (Controller Config TIO)) ()
+home = mapTaggedT (reading getBackend) $ do
+  page <- renderTemplate Home
+  respondTagged . okHtml . ByteString.fromStrict . encodeUtf8 $ page
 
 {-@ ignore main @-}
 main :: IO ()
@@ -246,7 +310,8 @@ main = runSqlite ":memory:" $ do
       port 3000
       appState cfg
     dispatch $ do
-      -- get "/profile/:uid" profile
-      get "/profile" profile
-      get "/people"  people
+      get "/"             home
+      get "/people"       people
+      get "/my-profile"   myProfile
+      get "/profile/:uid" profile
       fallback $ respond notFound

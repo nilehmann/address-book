@@ -6,15 +6,17 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
   </head>
   <body>
-    <h1>Name</h1>
-    <span>{{name}}</span>
-    {{#address}}
-    {{#email}}
-    <h1>Email Address</h1>
-    <span>{{email}}</span>
-    {{/email}}
-    <h1>Address</h1>
-    <span>{{address}}</span>
-    {{/address}}
+      <dl>
+          <dt>Name</dt>
+          <dd>{{name}}</dd>
+          {{#email}}
+          <dt>Email Address</dt>
+          <dd>{{email}}</dd>
+          {{/email}}
+          {{#address}}
+          <dt>Address</dt>
+          <dd>{{address}}</dd>
+          {{/address}}
+      </dl>
   </body>
 </html>
