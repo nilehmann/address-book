@@ -45,7 +45,6 @@ assume (?:) :: forall <r :: Entity record -> Bool, r1 :: Entity record -> Bool, 
 (?:) :: Filter record -> FilterList record -> FilterList record
 Filter f ?: FilterList fs = FilterList (f:fs)
 
-
 {-@
 assume (|||) :: forall <q :: Entity record -> Entity User -> Bool, r1 :: Entity record -> Bool, r2 :: Entity record -> Bool, r :: Entity record -> Bool, q1 :: Entity record -> Entity User -> Bool, q2 :: Entity record -> Entity User -> Bool>.
   {{v: Entity <r1> record | True} <: {v:(Entity <r> record) | True}}

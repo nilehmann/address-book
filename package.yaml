@@ -24,7 +24,7 @@ dependencies:
 - base64-bytestring
 - bytestring
 - either
-- lio-http-server
+- frankie
 - mtl
 - mustache
 - persistent

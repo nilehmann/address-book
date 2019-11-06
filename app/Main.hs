@@ -25,7 +25,6 @@ import           Data.Typeable
 import           Data.Text                      ( Text )
 import           Data.Text.Encoding             ( encodeUtf8 )
 import qualified Data.Text                     as Text
-import           LIO.HTTP.Server.Frankie
 import           Text.Mustache                  ( (~>)
                                                 , ToMustache(..)
                                                 )
@@ -48,7 +47,7 @@ data Config = Config
   }
 
 instance HasTemplateCache Config where
-  templateCache = configTemplateCache
+  getTemplateCache = configTemplateCache
 
 instance HasSqlBackend Config where
   getSqlBackend = configBackend

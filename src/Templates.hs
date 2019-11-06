@@ -22,13 +22,11 @@ import           Control.Exception              ( evaluate )
 import           Infrastructure
 import           Filters
 
-
 class Mustache.ToMustache d => TemplateData d where
   templateFile :: FilePath
 
 class HasTemplateCache config where
-  templateCache :: config -> MVar Mustache.TemplateCache
-
+  getTemplateCache :: config -> MVar Mustache.TemplateCache
 
 {-@ ignore getOrLoadTemplate @-}
 getOrLoadTemplate
@@ -37,7 +35,7 @@ getOrLoadTemplate
   -> FilePath
   -> m Mustache.Template
 getOrLoadTemplate searchDirs file = do
-  cacheMVar <- templateCache <$> getAppState
+  cacheMVar <- getTemplateCache <$> getAppState
   oldCache  <- liftTIO $ TIO (readMVar cacheMVar)
   case HashMap.lookup file oldCache of
     Just template -> pure template

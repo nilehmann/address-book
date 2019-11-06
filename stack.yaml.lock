@@ -5,19 +5,19 @@
 
 packages:
 - completed:
-    size: 16780
-    url: https://github.com/rosekunkel/frankie/archive/377b64cfae4525546018673f0a4c95b6b44b0326.tar.gz
+    size: 17007
+    url: https://github.com/PLSysSec/frankie/archive/571f8e13d9167ff8f98eb52dcbe6416001dec913.tar.gz
     cabal-file:
-      size: 2123
-      sha256: e1ed4fbf6f02cd86145e05ff88f496b018136588dec33e761fb4acb9b4a57c4e
-    name: lio-http-server
+      size: 2682
+      sha256: 5a786ed6cb7b5109987a6d2ea0eacae9eb8f470ec90d90cbb651b28ea82ec5d5
+    name: frankie
     version: 0.0.0.1
-    sha256: 5bc9d33f5702766d15aa692c0a0987710b34e78249c2a1fc78ca70d2970d5e54
+    sha256: f302f4c1d78ecb05b170234122e436eddec19104d0dd18ea43f0173dd12fc495
     pantry-tree:
-      size: 750
-      sha256: 0b9068bc571f31222c428beae5aa33112d34b6559bd4b4076688723eae0e02ca
+      size: 848
+      sha256: 70f8193820c24d874c920966c2c63696ed921c0a08d2e5b36efe2c3102a4d785
   original:
-    url: https://github.com/rosekunkel/frankie/archive/377b64cfae4525546018673f0a4c95b6b44b0326.tar.gz
+    url: https://github.com/PLSysSec/frankie/archive/571f8e13d9167ff8f98eb52dcbe6416001dec913.tar.gz
 snapshots:
 - completed:
     size: 524786

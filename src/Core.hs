@@ -3,7 +3,6 @@
 module Core ( Entity ) where
 
 import Database.Persist (Entity, Key)
-import qualified Database.Persist as Persist
 
 -- TODO: This entity stuff is morally just refinements on existing functions
 -- from Persist, it would be nice to move this to a spec file.
