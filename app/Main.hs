@@ -2,7 +2,9 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE ScopedTypeVariables, AllowAmbiguousTypes #-}
+{-# LANGUAGE PackageImports #-}
 
 {-@ LIQUID "--no-pattern-inline" @-}
 
@@ -33,18 +35,24 @@ import qualified Database.Persist              as Persist
 import qualified Data.ByteString.Lazy          as ByteString
 import qualified Control.Concurrent.MVar       as MVar
 
+import           Frankie.Config
+import           Frankie.Auth
+
 import           Infrastructure
 import           Templates
-import           Frankie
+import           Frankie.Tagged
 import qualified Actions
 import           Filters
 import           Core
 
-
 data Config = Config
   { configBackend :: SqlBackend
   , configTemplateCache :: !(MVar.MVar Mustache.TemplateCache)
+  , configAuthMethod :: !(AuthMethod (Entity User) Controller)
   }
+
+type Controller
+  = TaggedT (ReaderT SqlBackend (ConfigT Config (ControllerT TIO)))
 
 instance HasTemplateCache Config where
   getTemplateCache = configTemplateCache
@@ -52,9 +60,11 @@ instance HasTemplateCache Config where
 instance HasSqlBackend Config where
   getSqlBackend = configBackend
 
-getBackend :: MonadController Config w m => m SqlBackend
-getBackend = configBackend <$> getAppState
+instance HasAuthMethod (Entity User) Controller Config where
+  getAuthMethod = configAuthMethod
 
+getBackend :: MonadConfig Config m => m SqlBackend
+getBackend = configBackend <$> getConfig
 
 setup :: MonadIO m => ReaderT SqlBackend m Config
 setup = do
@@ -104,13 +114,14 @@ setup = do
 
   backend <- ask
 
-
-  return
-    $ Config { configBackend = backend, configTemplateCache = templateCache }
+  return $ Config { configBackend       = backend
+                  , configTemplateCache = templateCache
+                  , configAuthMethod    = httpAuthDb
+                  }
 
 
 {-@ guardVerified :: user: (Entity User) -> TaggedT<{\_ -> True}, {\u -> currentUser == u}> _ {v: () | userVerified (entityVal user) }@-}
-guardVerified :: MonadController s w m => Entity User -> TaggedT m ()
+guardVerified :: MonadController w m => Entity User -> TaggedT m ()
 guardVerified user = do
   verified <- Actions.project userVerifiedField user
   if verified then returnTagged () else respondTagged forbidden
@@ -129,12 +140,12 @@ instance ToMustache Profile where
     ]
 
 
-
-{-@ profile :: {v: Int64 | True} -> TaggedT<{\_ -> False}, {\_ -> True}> _ () @-}
-profile :: Int64 -> TaggedT (AuthenticatedT (Controller Config TIO)) ()
-profile uid = mapTaggedT (reading getBackend) $ do
+{-@ ignore profile @-}
+{-@ profile :: {v: Int64 | True} -> TaggedT<{\_ -> False}, {\_ -> True}> _ _ @-}
+profile :: Int64 -> Controller ()
+profile uid = do
   let userId = Sql.toSqlKey uid
-  loggedInUser   <- getLoggedInUserTagged
+  loggedInUser   <- requireAuthUser
   loggedInUserId <- Actions.project userIdField loggedInUser
   if userId == loggedInUserId
     then respondTagged (redirectTo "/my-profile")
@@ -147,24 +158,27 @@ profile uid = mapTaggedT (reading getBackend) $ do
       userName      <- Actions.project userNameField user
       friendRequest <-
         Actions.selectFirst
-        $   (   friendRequestFromField
+          $ (   friendRequestFromField
             ==. loggedInUserId
             ?:  friendRequestToField
             ==. userId
             ?:  nilFL
             )
-        ||| (   friendRequestFromField
-            ==. userId
-            ?:  friendRequestToField
-            ==. loggedInUserId
-            ?:  nilFL
-            )
+        -- |||
+        -- (   friendRequestFromField
+        -- ==. userId
+        -- ?:  friendRequestToField
+        -- ==. loggedInUserId
+        -- ?:  nilFL
+        -- )
+      -- _ <- check user friendRequest
 
       userAddress <- case friendRequest of
         Just friendRequest -> do
           accepted <- Actions.project friendRequestAcceptedField friendRequest
           if accepted
             then do
+              -- _ <- friends user loggedInUser
               userAddress <- Actions.project userAddressField user
               returnTagged $ Just userAddress
             else returnTagged Nothing
@@ -194,10 +208,11 @@ instance ToMustache People where
   toMustache (People people) =
     Mustache.object ["people" ~> toMustache (map toMustache people)]
 
-{-@ people :: TaggedT<{\_ -> False}, {\_ -> True}> _ () @-}
-people :: TaggedT (AuthenticatedT (Controller Config TIO)) ()
-people = mapTaggedT (reading getBackend) $ do
-  loggedInUser   <- getLoggedInUserTagged
+{-@ ignore people @-}
+{-@ people :: TaggedT<{\_ -> False}, {\_ -> True}> _ _ @-}
+people :: Controller ()
+people = do
+  loggedInUser   <- requireAuthUser
   _              <- guardVerified loggedInUser
   loggedInUserId <- Actions.project userIdField loggedInUser
   users          <- Actions.selectList (userIdField !=. loggedInUserId ?: nilFL)
@@ -224,10 +239,11 @@ people = mapTaggedT (reading getBackend) $ do
     Just True  -> Friend
     Just False -> Pending
 
-{-@ myProfile :: TaggedT<{\_ -> False}, {\_ -> True}> _ _@-}
-myProfile :: TaggedT (AuthenticatedT (Controller Config TIO)) ()
-myProfile = mapTaggedT (reading getBackend) $ do
-  loggedInUser <- getLoggedInUserTagged
+{-@ignore myProfile @-}
+{-@ myProfile :: TaggedT<{\_ -> False}, {\_ -> True}> _ _ @-}
+myProfile :: Controller ()
+myProfile = do
+  loggedInUser <- requireAuthUser
   userName     <- Actions.project userNameField loggedInUser
   userAddress  <- Actions.project userAddressField loggedInUser
   userEmail    <- Actions.project userEmailField loggedInUser
@@ -243,8 +259,9 @@ instance TemplateData Home where
 instance ToMustache Home where
   toMustache Home = Mustache.object []
 
-{-@ home :: TaggedT<{\_ -> False}, {\_ -> True}> _ _@-}
-home :: TaggedT (AuthenticatedT (Controller Config TIO)) ()
+{-@ ignore home @-}
+{-@ home :: TaggedT<{\_ -> False}, {\_ -> True}> _ _ @-}
+home :: Controller ()
 home = mapTaggedT (reading getBackend) $ do
   page <- renderTemplate Home
   respondTagged . okHtml . ByteString.fromStrict . encodeUtf8 $ page
@@ -257,7 +274,7 @@ main = runSqlite ":memory:" $ do
     mode "dev" $ do
       host "localhost"
       port 3000
-      appState cfg
+      initWith $ configure cfg . reading backend . unTag
     dispatch $ do
       get "/"             home
       get "/people"       people

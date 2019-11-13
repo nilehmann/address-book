@@ -5,19 +5,19 @@
 
 packages:
 - completed:
-    size: 17007
-    url: https://github.com/PLSysSec/frankie/archive/571f8e13d9167ff8f98eb52dcbe6416001dec913.tar.gz
+    size: 17908
+    url: https://github.com/PLSysSec/frankie/archive/8894b528847a9f3bdef7ec47e905fc81081c2940.tar.gz
     cabal-file:
-      size: 2682
-      sha256: 5a786ed6cb7b5109987a6d2ea0eacae9eb8f470ec90d90cbb651b28ea82ec5d5
+      size: 2796
+      sha256: d101826c17f517b295477a0c60369ded2e5f951282bed6b7d95cf06f0dca0bf1
     name: frankie
     version: 0.0.0.1
-    sha256: f302f4c1d78ecb05b170234122e436eddec19104d0dd18ea43f0173dd12fc495
+    sha256: 79e202bd6bf8316aa402be2554ac5f5712724a199e721438d0b764c61e6913c2
     pantry-tree:
-      size: 848
-      sha256: 70f8193820c24d874c920966c2c63696ed921c0a08d2e5b36efe2c3102a4d785
+      size: 1017
+      sha256: 8bb2c1ca960e6ccc2861abd25ee984c842651ece475302f49dd6899431bdb5fe
   original:
-    url: https://github.com/PLSysSec/frankie/archive/571f8e13d9167ff8f98eb52dcbe6416001dec913.tar.gz
+    url: https://github.com/PLSysSec/frankie/archive/8894b528847a9f3bdef7ec47e905fc81081c2940.tar.gz
 snapshots:
 - completed:
     size: 524786

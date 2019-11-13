@@ -129,7 +129,7 @@ friendRequestToField :: EntityFieldWrapper FriendRequest (Key User)
 friendRequestToField = EntityFieldWrapper FriendRequestTo
 
 {-@ assume friendRequestAcceptedField :: EntityFieldWrapper <
-    {\row viewer -> True}
+    {\row viewer -> friendRequestTo (entityVal row) == (entityKey viewer) || friendRequestFrom (entityVal row) == (entityKey viewer)}
   , {\row field -> field = friendRequestAccepted (entityVal row)}
   , {\field row -> field = friendRequestAccepted (entityVal row)}
   > FriendRequest Bool @-}
@@ -138,4 +138,4 @@ friendRequestAcceptedField = EntityFieldWrapper FriendRequestAccepted
 
 -- TODO make this symmetric
 {-@ measure friends :: Key User -> Key User -> Bool @-}
-{-@ invariant {v:FriendRequest | friendRequestAccepted v => (friends (friendRequestFrom v) (friendRequestTo v) && friends (friendRequestTo v) (friendRequestFrom v))} @-}
+-- {-@ invariant {v:FriendRequest | friendRequestAccepted v => (friends (friendRequestFrom v) (friendRequestTo v) && friends (friendRequestTo v) (friendRequestFrom v))} @-}
