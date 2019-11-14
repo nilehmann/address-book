@@ -77,26 +77,22 @@ setup = do
     "jerry@seinfeld.com"
     "129 West 81st Street, Apt 5A, New York, NY"
     True
-    10
   kramerId <- Persist.insert $ User
     "Cosmo Kramer"
     "cosmo@kramer.com"
     "129 West 81st Street, Apt 5B, New York, NY"
     True
-    10
   newmanId <- Persist.insert $ User
     "Newman"
     "newman@newman.com"
     "129 West 81st Street, Apt 5E, New York, NY"
     True
-    10
   georgeId <- Persist.insert $ User "George Constanza"
                                     "george@constanza.com"
                                     "Somewhere in New York"
                                     True
-                                    10
   susanId <- Persist.insert
-    $ User "Susan Ross" "susan@ross.com" "Somewhere in New York" False 10
+    $ User "Susan Ross" "susan@ross.com" "Somewhere in New York" False
 
   Persist.insert $ FriendRequest newmanId kramerId True
 
@@ -140,7 +136,6 @@ instance ToMustache Profile where
     ]
 
 
-{-@ ignore profile @-}
 {-@ profile :: {v: Int64 | True} -> TaggedT<{\_ -> False}, {\_ -> True}> _ _ @-}
 profile :: Int64 -> Controller ()
 profile uid = do
@@ -162,26 +157,25 @@ profile uid = do
             ==. loggedInUserId
             ?:  friendRequestToField
             ==. userId
+            ?:
+            friendRequestAcceptedField ==. True
             ?:  nilFL
             )
-        -- |||
-        -- (   friendRequestFromField
-        -- ==. userId
-        -- ?:  friendRequestToField
-        -- ==. loggedInUserId
-        -- ?:  nilFL
-        -- )
+            |||
+            (   friendRequestFromField
+            ==. userId
+            ?:  friendRequestToField
+            ==. loggedInUserId
+            ?:
+            friendRequestAcceptedField ==. True
+            ?:  nilFL
+            )
       -- _ <- check user friendRequest
 
       userAddress <- case friendRequest of
         Just friendRequest -> do
-          accepted <- Actions.project friendRequestAcceptedField friendRequest
-          if accepted
-            then do
-              -- _ <- friends user loggedInUser
-              userAddress <- Actions.project userAddressField user
-              returnTagged $ Just userAddress
-            else returnTagged Nothing
+          userAddress <- Actions.project userAddressField user
+          returnTagged $ Just userAddress
         Nothing -> returnTagged Nothing
       page <- renderTemplate $ Profile userName userAddress Nothing
       respondTagged . okHtml . ByteString.fromStrict . encodeUtf8 $ page

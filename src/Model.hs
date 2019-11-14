@@ -32,7 +32,6 @@ User
   email Text
   address Text
   verified Bool
-  theInt Int
   deriving Show
 
 FriendRequest
@@ -49,18 +48,9 @@ data User = User
   , userEmail :: {v: _ | tlen v > 0}
   , userAddress :: {v: _ | tlen v > 0}
   , userVerified :: _
-  , userTheInt :: _
   }
 @-}
 
-
-{-@ assume userTheIntField :: EntityFieldWrapper <
-    {\row viewer -> True}
-  , {\row field -> field == userTheInt (entityVal row)}
-  , {\field row -> field == userTheInt (entityVal row)}
-  > User Int @-}
-userTheIntField :: EntityFieldWrapper User Int
-userTheIntField = EntityFieldWrapper UserTheInt
 
 {-@ assume userIdField :: EntityFieldWrapper <
     {\row viewer -> True}
@@ -112,6 +102,8 @@ data FriendRequest = FriendRequest
   }
 @-}
 
+{-@ predicate IsEndpoint USER ROW = (entityKey USER) == friendRequestFrom (entityVal ROW) || (entityKey USER) == friendRequestTo (entityVal ROW)@-}
+
 {-@ assume friendRequestFromField :: EntityFieldWrapper <
     {\row viewer -> True}
   , {\row field -> field = friendRequestFrom (entityVal row)}
@@ -129,7 +121,7 @@ friendRequestToField :: EntityFieldWrapper FriendRequest (Key User)
 friendRequestToField = EntityFieldWrapper FriendRequestTo
 
 {-@ assume friendRequestAcceptedField :: EntityFieldWrapper <
-    {\row viewer -> friendRequestTo (entityVal row) == (entityKey viewer) || friendRequestFrom (entityVal row) == (entityKey viewer)}
+    {\row viewer -> IsEndpoint viewer row}
   , {\row field -> field = friendRequestAccepted (entityVal row)}
   , {\field row -> field = friendRequestAccepted (entityVal row)}
   > FriendRequest Bool @-}
@@ -138,4 +130,4 @@ friendRequestAcceptedField = EntityFieldWrapper FriendRequestAccepted
 
 -- TODO make this symmetric
 {-@ measure friends :: Key User -> Key User -> Bool @-}
--- {-@ invariant {v:FriendRequest | friendRequestAccepted v => (friends (friendRequestFrom v) (friendRequestTo v) && friends (friendRequestTo v) (friendRequestFrom v))} @-}
+{-@ invariant {v:FriendRequest | friendRequestAccepted v => (friends (friendRequestFrom v) (friendRequestTo v) && friends (friendRequestTo v) (friendRequestFrom v))} @-}
