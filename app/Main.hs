@@ -136,6 +136,34 @@ instance ToMustache Profile where
     ]
 
 
+{-@ ignore isFriend @-}
+{-@ assume isFriend :: u1: UserId -> u2: UserId -> TaggedT<{\v -> (entityKey v) == u1}, {\_ -> False}> _ {v: Bool | v => friends u1 u2} @-}
+isFriend :: UserId -> UserId -> Controller Bool
+isFriend u1 u2 = do
+  friendRequest <-
+    Actions.selectFirst
+    $   (   friendRequestFromField
+        ==. u1
+        ?:  friendRequestToField
+        ==. u2
+        ?:  friendRequestAcceptedField
+        ==. True
+        ?:  nilFL
+        )
+    ||| (   friendRequestFromField
+        ==. u2
+        ?:  friendRequestToField
+        ==. u1
+        ?:  friendRequestAcceptedField
+        ==. True
+        ?:  nilFL
+        )
+  case friendRequest of
+    Just _  -> returnTagged True
+    Nothing -> returnTagged False
+
+
+{-@ ignore profile @-}
 {-@ profile :: {v: Int64 | True} -> TaggedT<{\_ -> False}, {\_ -> True}> _ _ @-}
 profile :: Int64 -> Controller ()
 profile uid = do
@@ -150,33 +178,14 @@ profile uid = do
       user      <- case maybeUser of
         Nothing   -> respondTagged notFound
         Just user -> returnTagged user
-      userName      <- Actions.project userNameField user
-      friendRequest <-
-        Actions.selectFirst
-          $ (   friendRequestFromField
-            ==. loggedInUserId
-            ?:  friendRequestToField
-            ==. userId
-            ?:
-            friendRequestAcceptedField ==. True
-            ?:  nilFL
-            )
-            |||
-            (   friendRequestFromField
-            ==. userId
-            ?:  friendRequestToField
-            ==. loggedInUserId
-            ?:
-            friendRequestAcceptedField ==. True
-            ?:  nilFL
-            )
-      -- _ <- check user friendRequest
+      userName    <- Actions.project userNameField user
 
-      userAddress <- case friendRequest of
-        Just friendRequest -> do
+      areFriends  <- isFriend loggedInUserId userId
+      userAddress <- if areFriends
+        then do
           userAddress <- Actions.project userAddressField user
           returnTagged $ Just userAddress
-        Nothing -> returnTagged Nothing
+        else returnTagged Nothing
       page <- renderTemplate $ Profile userName userAddress Nothing
       respondTagged . okHtml . ByteString.fromStrict . encodeUtf8 $ page
 
