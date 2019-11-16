@@ -18,5 +18,11 @@
           <dd>{{address}}</dd>
           {{/address}}
       </dl>
+
+      <ul>
+      {{#friends}}
+          <li><a href="/profile/{{id}}">{{name}}</a>
+      {{/friends}}
+      <ul>
   </body>
 </html>

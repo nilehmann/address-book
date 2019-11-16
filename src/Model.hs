@@ -103,9 +103,10 @@ data FriendRequest = FriendRequest
 @-}
 
 {-@ predicate IsEndpoint USER ROW = (entityKey USER) == friendRequestFrom (entityVal ROW) || (entityKey USER) == friendRequestTo (entityVal ROW)@-}
+{-@ predicate IsFriendOfEndpoint VIEWER ROW = friends (entityKey VIEWER) (friendRequestFrom (entityVal ROW)) || friends (entityKey VIEWER) (friendRequestTo (entityVal ROW)) @-}
 
 {-@ assume friendRequestFromField :: EntityFieldWrapper <
-    {\row viewer -> True}
+    {\row viewer -> (IsEndpoint viewer row) || (friendRequestAccepted (entityVal row) && IsFriendOfEndpoint viewer row)}
   , {\row field -> field = friendRequestFrom (entityVal row)}
   , {\field row -> field = friendRequestFrom (entityVal row)}
   > FriendRequest UserId @-}
@@ -113,7 +114,7 @@ friendRequestFromField :: EntityFieldWrapper FriendRequest (Key User)
 friendRequestFromField = EntityFieldWrapper FriendRequestFrom
 
 {-@ assume friendRequestToField :: EntityFieldWrapper <
-    {\row viewer -> True}
+    {\row viewer -> (IsEndpoint viewer row) || (friendRequestAccepted (entityVal row) && IsFriendOfEndpoint viewer row)}
   , {\row field -> field = friendRequestTo (entityVal row)}
   , {\field row -> field = friendRequestTo (entityVal row)}
   > FriendRequest UserId @-}
@@ -121,7 +122,7 @@ friendRequestToField :: EntityFieldWrapper FriendRequest (Key User)
 friendRequestToField = EntityFieldWrapper FriendRequestTo
 
 {-@ assume friendRequestAcceptedField :: EntityFieldWrapper <
-    {\row viewer -> IsEndpoint viewer row}
+    {\row viewer -> (IsEndpoint viewer row) || (friendRequestAccepted (entityVal row) && IsFriendOfEndpoint viewer row)}
   , {\row field -> field = friendRequestAccepted (entityVal row)}
   , {\field row -> field = friendRequestAccepted (entityVal row)}
   > FriendRequest Bool @-}
@@ -130,4 +131,4 @@ friendRequestAcceptedField = EntityFieldWrapper FriendRequestAccepted
 
 -- TODO make this symmetric
 {-@ measure friends :: Key User -> Key User -> Bool @-}
-{-@ invariant {v:FriendRequest | friendRequestAccepted v => (friends (friendRequestFrom v) (friendRequestTo v) && friends (friendRequestTo v) (friendRequestFrom v))} @-}
+{-@ invariant {v:FriendRequest | friendRequestAccepted v => friends (friendRequestFrom v) (friendRequestTo v)} @-}

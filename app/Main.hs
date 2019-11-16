@@ -4,7 +4,6 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE ScopedTypeVariables, AllowAmbiguousTypes #-}
-{-# LANGUAGE PackageImports #-}
 
 {-@ LIQUID "--no-pattern-inline" @-}
 
@@ -123,47 +122,50 @@ guardVerified user = do
   if verified then returnTagged () else respondTagged forbidden
 
 
-data Profile = Profile {profileName :: Text, profileAddress :: Maybe Text, profileEmail :: Maybe Text}
+data Profile = Profile {profileName :: Text, profileAddress :: Maybe Text, profileEmail :: Maybe Text, friends :: [Person] }
 
 instance TemplateData Profile where
   templateFile = "profile.html.mustache"
 
 instance ToMustache Profile where
-  toMustache (Profile name address email) = Mustache.object
+  toMustache (Profile name address email friends) = Mustache.object
     [ "name" ~> toMustache name
     , "address" ~> toMustache address
     , "email" ~> toMustache email
+    , "friends" ~> toMustache friends
     ]
 
 
-{-@ ignore isFriend @-}
-{-@ assume isFriend :: u1: UserId -> u2: UserId -> TaggedT<{\v -> (entityKey v) == u1}, {\_ -> False}> _ {v: Bool | v => friends u1 u2} @-}
-isFriend :: UserId -> UserId -> Controller Bool
-isFriend u1 u2 = do
-  friendRequest <-
-    Actions.selectFirst
-    $   (   friendRequestFromField
-        ==. u1
-        ?:  friendRequestToField
-        ==. u2
-        ?:  friendRequestAcceptedField
-        ==. True
-        ?:  nilFL
-        )
-    ||| (   friendRequestFromField
-        ==. u2
-        ?:  friendRequestToField
-        ==. u1
-        ?:  friendRequestAcceptedField
-        ==. True
-        ?:  nilFL
-        )
+{-@ getFriends :: userId: UserId -> TaggedT<{\v -> ((friends (entityKey currentUser) userId) && currentUser == v) || (entityKey v) == userId}, {\_ -> False}> _ _ @-}
+getFriends :: UserId -> Controller [Entity User]
+getFriends userId = do
+  requests1 <- Actions.selectList
+    (friendRequestFromField ==. userId ?: friendRequestAcceptedField ==. True ?: nilFL)
+  userIds1  <- Actions.projectList friendRequestToField requests1
+  requests2 <- Actions.selectList
+    (friendRequestToField ==. userId ?: friendRequestAcceptedField ==. True ?: nilFL)
+  userIds2 <- Actions.projectList friendRequestFromField requests2
+  users <- Actions.selectList (userIdField <-. (userIds1 ++ userIds2) ?: nilFL)
+  returnTagged users
+
+
+{-@ isFriendWith :: viewer: UserId -> userId: UserId -> TaggedT<{\v -> (entityKey v) == viewer}, {\_ -> False}> _ {v: Bool | v => friends viewer userId} @-}
+isFriendWith :: UserId -> UserId -> Controller Bool
+isFriendWith viewer userId = do
+  friendRequest <- Actions.selectFirst
+    (   friendRequestFromField
+    ==. viewer
+    ?:  friendRequestToField
+    ==. userId
+    ?:  friendRequestAcceptedField
+    ==. True
+    ?:  nilFL
+    )
   case friendRequest of
     Just _  -> returnTagged True
     Nothing -> returnTagged False
 
 
-{-@ ignore profile @-}
 {-@ profile :: {v: Int64 | True} -> TaggedT<{\_ -> False}, {\_ -> True}> _ _ @-}
 profile :: Int64 -> Controller ()
 profile uid = do
@@ -178,15 +180,23 @@ profile uid = do
       user      <- case maybeUser of
         Nothing   -> respondTagged notFound
         Just user -> returnTagged user
-      userName    <- Actions.project userNameField user
+      userName               <- Actions.project userNameField user
 
-      areFriends  <- isFriend loggedInUserId userId
-      userAddress <- if areFriends
+      areFriends             <- loggedInUserId `isFriendWith` userId
+      (userAddress, friends) <- if areFriends
         then do
           userAddress <- Actions.project userAddressField user
-          returnTagged $ Just userAddress
-        else returnTagged Nothing
-      page <- renderTemplate $ Profile userName userAddress Nothing
+          friends     <- getFriends userId
+          friendIds   <- Actions.projectList userIdField friends
+          friendNames <- Actions.projectList userNameField friends
+          returnTagged
+            ( Just userAddress
+            , map
+              (\(id, name) -> Person (show $ Sql.fromSqlKey id) name Friend)
+              (zip friendIds friendNames)
+            )
+        else returnTagged (Nothing, [])
+      page <- renderTemplate $ Profile userName userAddress Nothing friends
       respondTagged . okHtml . ByteString.fromStrict . encodeUtf8 $ page
 
 
@@ -211,7 +221,6 @@ instance ToMustache People where
   toMustache (People people) =
     Mustache.object ["people" ~> toMustache (map toMustache people)]
 
-{-@ ignore people @-}
 {-@ people :: TaggedT<{\_ -> False}, {\_ -> True}> _ _ @-}
 people :: Controller ()
 people = do
@@ -242,15 +251,28 @@ people = do
     Just True  -> Friend
     Just False -> Pending
 
-{-@ignore myProfile @-}
 {-@ myProfile :: TaggedT<{\_ -> False}, {\_ -> True}> _ _ @-}
 myProfile :: Controller ()
 myProfile = do
   loggedInUser <- requireAuthUser
+  userId       <- Actions.project userIdField loggedInUser
   userName     <- Actions.project userNameField loggedInUser
   userAddress  <- Actions.project userAddressField loggedInUser
   userEmail    <- Actions.project userEmailField loggedInUser
-  let profile = Profile userName (Just userAddress) (Just userEmail)
+  userVerified <- Actions.project userVerifiedField loggedInUser
+
+  friends      <- if userVerified
+    then do
+      friends     <- getFriends userId
+      friendIds   <- Actions.projectList userIdField friends
+      friendNames <- Actions.projectList userNameField friends
+      let friends = map
+            (\(id, name) -> Person (show $ Sql.fromSqlKey id) name Friend)
+            (zip friendIds friendNames)
+      returnTagged friends
+    else returnTagged []
+
+  let profile = Profile userName (Just userAddress) (Just userEmail) friends
   page <- renderTemplate profile
   respondTagged . okHtml . ByteString.fromStrict . encodeUtf8 $ page
 
@@ -262,7 +284,6 @@ instance TemplateData Home where
 instance ToMustache Home where
   toMustache Home = Mustache.object []
 
-{-@ ignore home @-}
 {-@ home :: TaggedT<{\_ -> False}, {\_ -> True}> _ _ @-}
 home :: Controller ()
 home = mapTaggedT (reading getBackend) $ do
