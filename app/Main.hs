@@ -50,8 +50,7 @@ data Config = Config
   , configAuthMethod :: !(AuthMethod (Entity User) Controller)
   }
 
-type Controller
-  = TaggedT (ReaderT SqlBackend (ConfigT Config (ControllerT TIO)))
+type Controller = TaggedT (ReaderT SqlBackend (ConfigT Config (ControllerT TIO)))
 
 instance HasTemplateCache Config where
   getTemplateCache = configTemplateCache
@@ -71,27 +70,15 @@ setup = do
 
   runMigration migrateAll
 
-  jerryId <- Persist.insert $ User
-    "Jerry Seinfeld"
-    "jerry@seinfeld.com"
-    "129 West 81st Street, Apt 5A, New York, NY"
-    True
-  kramerId <- Persist.insert $ User
-    "Cosmo Kramer"
-    "cosmo@kramer.com"
-    "129 West 81st Street, Apt 5B, New York, NY"
-    True
-  newmanId <- Persist.insert $ User
-    "Newman"
-    "newman@newman.com"
-    "129 West 81st Street, Apt 5E, New York, NY"
-    True
-  georgeId <- Persist.insert $ User "George Constanza"
-                                    "george@constanza.com"
-                                    "Somewhere in New York"
-                                    True
-  susanId <- Persist.insert
-    $ User "Susan Ross" "susan@ross.com" "Somewhere in New York" False
+  jerryId <- Persist.insert
+    $ User "Jerry Seinfeld" "jerry@seinfeld.com" "129 West 81st Street, Apt 5A, New York, NY" True
+  kramerId <- Persist.insert
+    $ User "Cosmo Kramer" "cosmo@kramer.com" "129 West 81st Street, Apt 5B, New York, NY" True
+  newmanId <- Persist.insert
+    $ User "Newman" "newman@newman.com" "129 West 81st Street, Apt 5E, New York, NY" True
+  georgeId <- Persist.insert
+    $ User "George Constanza" "george@constanza.com" "Somewhere in New York" True
+  susanId <- Persist.insert $ User "Susan Ross" "susan@ross.com" "Somewhere in New York" False
 
   Persist.insert $ FriendRequest newmanId kramerId True
 
@@ -140,27 +127,25 @@ instance ToMustache Profile where
 getFriends :: UserId -> Controller [Entity User]
 getFriends userId = do
   requests1 <- Actions.selectList
-    (friendRequestFromField ==. userId ?: friendRequestAcceptedField ==. True ?: nilFL)
+    (friendRequestFromField ==. userId &&: friendRequestAcceptedField ==. True)
   userIds1  <- Actions.projectList friendRequestToField requests1
   requests2 <- Actions.selectList
-    (friendRequestToField ==. userId ?: friendRequestAcceptedField ==. True ?: nilFL)
+    (friendRequestToField ==. userId &&: friendRequestAcceptedField ==. True)
   userIds2 <- Actions.projectList friendRequestFromField requests2
-  users <- Actions.selectList (userIdField <-. (userIds1 ++ userIds2) ?: nilFL)
+  users    <- Actions.selectList (userIdField <-. (userIds1 ++ userIds2))
   returnTagged users
 
 
 {-@ isFriendWith :: viewer: UserId -> userId: UserId -> TaggedT<{\v -> (entityKey v) == viewer}, {\_ -> False}> _ {v: Bool | v => friends viewer userId} @-}
 isFriendWith :: UserId -> UserId -> Controller Bool
 isFriendWith viewer userId = do
-  friendRequest <- Actions.selectFirst
-    (   friendRequestFromField
-    ==. viewer
-    ?:  friendRequestToField
-    ==. userId
-    ?:  friendRequestAcceptedField
+  friendRequest <-
+    Actions.selectFirst
+    $   (   (friendRequestFromField ==. viewer &&: friendRequestToField ==. userId)
+        ||: (friendRequestToField ==. viewer &&: friendRequestFromField ==. userId)
+        )
+    &&: friendRequestAcceptedField
     ==. True
-    ?:  nilFL
-    )
   case friendRequest of
     Just _  -> returnTagged True
     Nothing -> returnTagged False
@@ -176,7 +161,7 @@ profile uid = do
     then respondTagged (redirectTo "/my-profile")
     else do
       _         <- guardVerified loggedInUser
-      maybeUser <- Actions.selectFirst (userIdField ==. userId ?: nilFL)
+      maybeUser <- Actions.selectFirst (userIdField ==. userId)
       user      <- case maybeUser of
         Nothing   -> respondTagged notFound
         Just user -> returnTagged user
@@ -191,9 +176,8 @@ profile uid = do
           friendNames <- Actions.projectList userNameField friends
           returnTagged
             ( Just userAddress
-            , map
-              (\(id, name) -> Person (show $ Sql.fromSqlKey id) name Friend)
-              (zip friendIds friendNames)
+            , map (\(id, name) -> Person (show $ Sql.fromSqlKey id) name Friend)
+                  (zip friendIds friendNames)
             )
         else returnTagged (Nothing, [])
       page <- renderTemplate $ Profile userName userAddress Nothing friends
@@ -218,29 +202,25 @@ instance ToMustache Person where
     Mustache.object ["id" ~> id, "name" ~> name, "status" ~> show status]
 
 instance ToMustache People where
-  toMustache (People people) =
-    Mustache.object ["people" ~> toMustache (map toMustache people)]
+  toMustache (People people) = Mustache.object ["people" ~> toMustache (map toMustache people)]
 
 {-@ people :: TaggedT<{\_ -> False}, {\_ -> True}> _ _ @-}
 people :: Controller ()
 people = do
-  loggedInUser   <- requireAuthUser
-  _              <- guardVerified loggedInUser
-  loggedInUserId <- Actions.project userIdField loggedInUser
-  users          <- Actions.selectList (userIdField !=. loggedInUserId ?: nilFL)
-  friendRequests <- Actions.selectList
-    (friendRequestFromField ==. loggedInUserId ?: nilFL)
+  loggedInUser     <- requireAuthUser
+  _                <- guardVerified loggedInUser
+  loggedInUserId   <- Actions.project userIdField loggedInUser
+  users            <- Actions.selectList (userIdField !=. loggedInUserId)
+  friendRequests   <- Actions.selectList (friendRequestFromField ==. loggedInUserId)
   requestsTo       <- Actions.projectList friendRequestToField friendRequests
-  requestsAccepted <- Actions.projectList friendRequestAcceptedField
-                                          friendRequests
+  requestsAccepted <- Actions.projectList friendRequestAcceptedField friendRequests
   let friendshipMap = zip requestsTo requestsAccepted
   userNames <- Actions.projectList userNameField users
   userIds   <- Actions.projectList userIdField users
   let userNamesAndIds = zip userIds userNames
   let people = map
-        (\(userId, userName) -> Person (show $ Sql.fromSqlKey userId)
-                                       userName
-                                       (friendshipStatus userId friendshipMap)
+        (\(userId, userName) ->
+          Person (show $ Sql.fromSqlKey userId) userName (friendshipStatus userId friendshipMap)
         )
         userNamesAndIds
   page <- renderTemplate (People people)
@@ -266,9 +246,8 @@ myProfile = do
       friends     <- getFriends userId
       friendIds   <- Actions.projectList userIdField friends
       friendNames <- Actions.projectList userNameField friends
-      let friends = map
-            (\(id, name) -> Person (show $ Sql.fromSqlKey id) name Friend)
-            (zip friendIds friendNames)
+      let friends = map (\(id, name) -> Person (show $ Sql.fromSqlKey id) name Friend)
+                        (zip friendIds friendNames)
       returnTagged friends
     else returnTagged []
 

@@ -131,4 +131,4 @@ friendRequestAcceptedField = EntityFieldWrapper FriendRequestAccepted
 
 -- TODO make this symmetric
 {-@ measure friends :: Key User -> Key User -> Bool @-}
-{-@ invariant {v:FriendRequest | friendRequestAccepted v => friends (friendRequestFrom v) (friendRequestTo v)} @-}
+{-@ invariant {v:FriendRequest | friendRequestAccepted v => (friends (friendRequestFrom v) (friendRequestTo v) && friends (friendRequestTo v) (friendRequestFrom v))} @-}
