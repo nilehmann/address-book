@@ -40,7 +40,7 @@ import           Frankie.Auth
 import           Infrastructure
 import           Templates
 import           Frankie.Tagged
-import qualified Actions
+import           Actions
 import           Filters
 import           Core
 
@@ -105,7 +105,7 @@ setup = do
 {-@ guardVerified :: user: (Entity User) -> TaggedT<{\_ -> True}, {\u -> currentUser == u}> _ {v: () | userVerified (entityVal user) }@-}
 guardVerified :: MonadController w m => Entity User -> TaggedT m ()
 guardVerified user = do
-  verified <- Actions.project userVerifiedField user
+  verified <- project userVerifiedField user
   if verified then returnTagged () else respondTagged forbidden
 
 
@@ -126,13 +126,12 @@ instance ToMustache Profile where
 {-@ getFriends :: userId: UserId -> TaggedT<{\v -> ((friends (entityKey currentUser) userId) && currentUser == v) || (entityKey v) == userId}, {\_ -> False}> _ _ @-}
 getFriends :: UserId -> Controller [Entity User]
 getFriends userId = do
-  requests1 <- Actions.selectList
+  requests1 <- selectList
     (friendRequestFromField ==. userId &&: friendRequestAcceptedField ==. True)
-  userIds1  <- Actions.projectList friendRequestToField requests1
-  requests2 <- Actions.selectList
-    (friendRequestToField ==. userId &&: friendRequestAcceptedField ==. True)
-  userIds2 <- Actions.projectList friendRequestFromField requests2
-  users    <- Actions.selectList (userIdField <-. (userIds1 ++ userIds2))
+  userIds1  <- projectList friendRequestToField requests1
+  requests2 <- selectList (friendRequestToField ==. userId &&: friendRequestAcceptedField ==. True)
+  userIds2  <- projectList friendRequestFromField requests2
+  users     <- selectList (userIdField <-. (userIds1 ++ userIds2))
   returnTagged users
 
 
@@ -140,7 +139,7 @@ getFriends userId = do
 isFriendWith :: UserId -> UserId -> Controller Bool
 isFriendWith viewer userId = do
   friendRequest <-
-    Actions.selectFirst
+    selectFirst
     $   (   (friendRequestFromField ==. viewer &&: friendRequestToField ==. userId)
         ||: (friendRequestToField ==. viewer &&: friendRequestFromField ==. userId)
         )
@@ -156,24 +155,24 @@ profile :: Int64 -> Controller ()
 profile uid = do
   let userId = Sql.toSqlKey uid
   loggedInUser   <- requireAuthUser
-  loggedInUserId <- Actions.project userIdField loggedInUser
+  loggedInUserId <- project userIdField loggedInUser
   if userId == loggedInUserId
     then respondTagged (redirectTo "/my-profile")
     else do
       _         <- guardVerified loggedInUser
-      maybeUser <- Actions.selectFirst (userIdField ==. userId)
+      maybeUser <- selectFirst (userIdField ==. userId)
       user      <- case maybeUser of
         Nothing   -> respondTagged notFound
         Just user -> returnTagged user
-      userName               <- Actions.project userNameField user
+      userName               <- project userNameField user
 
       areFriends             <- loggedInUserId `isFriendWith` userId
       (userAddress, friends) <- if areFriends
         then do
-          userAddress <- Actions.project userAddressField user
+          userAddress <- project userAddressField user
           friends     <- getFriends userId
-          friendIds   <- Actions.projectList userIdField friends
-          friendNames <- Actions.projectList userNameField friends
+          friendIds   <- projectList userIdField friends
+          friendNames <- projectList userNameField friends
           returnTagged
             ( Just userAddress
             , map (\(id, name) -> Person (show $ Sql.fromSqlKey id) name Friend)
@@ -209,14 +208,14 @@ people :: Controller ()
 people = do
   loggedInUser     <- requireAuthUser
   _                <- guardVerified loggedInUser
-  loggedInUserId   <- Actions.project userIdField loggedInUser
-  users            <- Actions.selectList (userIdField !=. loggedInUserId)
-  friendRequests   <- Actions.selectList (friendRequestFromField ==. loggedInUserId)
-  requestsTo       <- Actions.projectList friendRequestToField friendRequests
-  requestsAccepted <- Actions.projectList friendRequestAcceptedField friendRequests
+  loggedInUserId   <- project userIdField loggedInUser
+  users            <- selectList (userIdField !=. loggedInUserId)
+  friendRequests   <- selectList (friendRequestFromField ==. loggedInUserId)
+  requestsTo       <- projectList friendRequestToField friendRequests
+  requestsAccepted <- projectList friendRequestAcceptedField friendRequests
   let friendshipMap = zip requestsTo requestsAccepted
-  userNames <- Actions.projectList userNameField users
-  userIds   <- Actions.projectList userIdField users
+  userNames <- projectList userNameField users
+  userIds   <- projectList userIdField users
   let userNamesAndIds = zip userIds userNames
   let people = map
         (\(userId, userName) ->
@@ -235,17 +234,17 @@ people = do
 myProfile :: Controller ()
 myProfile = do
   loggedInUser <- requireAuthUser
-  userId       <- Actions.project userIdField loggedInUser
-  userName     <- Actions.project userNameField loggedInUser
-  userAddress  <- Actions.project userAddressField loggedInUser
-  userEmail    <- Actions.project userEmailField loggedInUser
-  userVerified <- Actions.project userVerifiedField loggedInUser
+  userId       <- project userIdField loggedInUser
+  userName     <- project userNameField loggedInUser
+  userAddress  <- project userAddressField loggedInUser
+  userEmail    <- project userEmailField loggedInUser
+  userVerified <- project userVerifiedField loggedInUser
 
   friends      <- if userVerified
     then do
       friends     <- getFriends userId
-      friendIds   <- Actions.projectList userIdField friends
-      friendNames <- Actions.projectList userNameField friends
+      friendIds   <- projectList userIdField friends
+      friendNames <- projectList userNameField friends
       let friends = map (\(id, name) -> Person (show $ Sql.fromSqlKey id) name Friend)
                         (zip friendIds friendNames)
       returnTagged friends
